@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 from groq import Groq
 
 # =========================
-# 🔧 FIX 1: Force IPv4 (HuggingFace fix)
+# 🔧 Force IPv4 (stability fix)
 # =========================
 def force_ipv4():
     orig_getaddrinfo = socket.getaddrinfo
@@ -21,7 +21,7 @@ def force_ipv4():
 force_ipv4()
 
 # =========================
-# 🔐 Load ENV variables
+# 🔐 ENV variables
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -30,12 +30,12 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("Missing TELEGRAM_TOKEN or GROQ_API_KEY")
 
 # =========================
-# 🤖 Init Groq
+# 🤖 Groq client
 # =========================
 client = Groq(api_key=GROQ_API_KEY)
 
 # =========================
-# 🎤 Handle Voice / Audio
+# 🎤 Handle audio
 # =========================
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_message = await update.message.reply_text("⚡ Processing audio...")
@@ -56,18 +56,20 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_audio_path = temp_audio.name
             await file.download_to_drive(temp_audio_path)
 
-        # Send to Groq
+        # Transcribe (NO translation)
         with open(temp_audio_path, "rb") as audio_file:
             transcription = client.audio.transcriptions.create(
                 file=(temp_audio_path, audio_file.read()),
                 model="whisper-large-v3-turbo",
-                response_format="text",
+                response_format="verbose_json",  # 👈 important
+                temperature=0
             )
 
-        # Reply result
+        text = transcription.text
+
+        # Reply with transcription only
         await status_message.edit_text(
-            f"📝 **Transcription:**\n\n{transcription}",
-            parse_mode="Markdown"
+            f"📝 Transcription:\n\n{text}"
         )
 
     except Exception as e:
@@ -78,7 +80,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(temp_audio_path)
 
 # =========================
-# 🚀 Main Runner (stable for HF)
+# 🚀 Main
 # =========================
 async def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -91,17 +93,14 @@ async def main():
 
     await app.initialize()
     await app.start()
-
-    # Start polling manually (more stable on HF)
-    await app.bot.initialize()
     await app.updater.start_polling()
 
-    # Keep alive forever
+    # Keep alive
     while True:
         await asyncio.sleep(3600)
 
 # =========================
-# ▶️ Entry point
+# ▶️ Run
 # =========================
 if __name__ == "__main__":
     asyncio.run(main())
